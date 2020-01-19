@@ -48,7 +48,7 @@ class AirStatus extends Command
         $val_aqi = $device->getNowCastAQI('pm10');
         $val_imeca = $device->getLast12HoursIMECAS();
         
-        $client->request('POST', env('BOT_WEBHOOK'), [
+        $client->request('POST', config('air_status.bot_webhook'), [
             'body' => [
                 'value1' => $this->getMessage($val_aqi),
                 'value2' => "Puntos AQI $val_aqi",
@@ -110,14 +110,14 @@ class AirStatus extends Command
 
     public function sendWhatsapp($to, $message )
     {
-        $sid = env('TWILIO_ACCOUNT_SID');
-        $token = env('TWILIO_AUTH_TOKEN');
+        $sid = config('air_status.twilio.account_sid');
+        $token = config('air_status.twilio.auth_token');
         $client = new Client($sid, $token);
 
         $message = $client->messages
-            ->create("whatsapp:+5216672067464", // to
+            ->create(config('air_status.whatsapp.to'), // to
                 array(
-                    "from" => "whatsapp:+14155238886",
+                    "from" =>config('air_status.whatsapp.from'),
                     "body" => $message
                 )
             );
