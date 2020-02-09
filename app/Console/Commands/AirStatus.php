@@ -2,10 +2,17 @@
 
 namespace App\Console\Commands;
 
+use App\AQI;
+use App\Calculations\ImecaCalculator;
 use App\DeviceRedspira;
 use App\Subscriber;
+use Exception;
 use Illuminate\Console\Command;
+use Javleds\RedspiraApi\DataParameters\DeviceParameters;
+use Javleds\RedspiraApi\Entity\DeviceRegistry;
+use Javleds\RedspiraApi\Facade\RedspiraApi;
 use Symfony\Component\HttpClient\HttpClient;
+use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
 use Twilio\Rest\Client;
 
 class AirStatus extends Command
@@ -36,27 +43,51 @@ class AirStatus extends Command
 
     /**
      * Execute the console command.
-     *
      * @return mixed
-     * @throws \Exception
+     * @throws Exception
      */
     public function handle()
     {
-        $client = HttpClient::create();
+        $hours = 12;
+        $pm10Registries = RedspiraApi::device()->getRegistriesForLastHours(
+            'A0034',
+            DeviceParameters::PM10_PARAMETER,
+            $hours
+        );
+        $pm10Average = $pm10Registries->avg(function(DeviceRegistry $registry) {
+            return $registry->getValProm();
+        });
+        $pm10Imecas = ImecaCalculator::calculatePM10($pm10Average);
 
-        $device = new DeviceRedspira('A0034');
-        $val_aqi = $device->getNowCastAQI('pm10');
-        $val_imeca = $device->getLast12HoursIMECAS();
-        
+        $pm25Registries = RedspiraApi::device()->getRegistriesForLastHours(
+            'A0034',
+            DeviceParameters::PM25_PARAMETER,
+            $hours
+        );
+        $pm25Average = $pm25Registries->avg(function(DeviceRegistry $registry) {
+            return $registry->getValProm();
+        });
+        $pm25Imecas = ImecaCalculator::calculatePM25($pm25Average);
+
+        $imecas = max($pm10Imecas, $pm25Imecas);
+
+        $pm10Values = $pm25Registries->map(function (DeviceRegistry $registry) {
+            return $registry->getValProm();
+        })->toArray();
+
+        $aqiFloat = number_format(AQI::nowCast($pm10Values), 1);
+        $aqis = intval($aqiFloat);
+
+        $client = new HttpClient();
         $client->request('POST', env('BOT_WEBHOOK'), [
             'body' => [
-                'value1' => $this->getMessage($val_aqi),
-                'value2' => "Puntos AQI $val_aqi",
-                'value3' => "Puntos IMECA $val_imeca"
+                'value1' => $this->getMessage($aqis),
+                'value2' => "Puntos AQI $aqis",
+                'value3' => "Puntos IMECA $imecas"
             ]
         ]);
 
-        $this->sendWhatsapp(null, $this->getMessage($val_aqi));
+        $this->sendWhatsapp(null, $this->getMessage($aqis));
 
         $this->info('normal');
     }
